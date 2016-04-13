@@ -9,6 +9,7 @@ import android.view.View;
 import android.widget.Button;
 import android.widget.EditText;
 import android.widget.TabHost;
+import android.widget.Toast;
 
 import com.kii.cloud.storage.Kii;
 import com.kii.cloud.storage.KiiUser;
@@ -33,6 +34,7 @@ import org.eclipse.paho.client.mqttv3.MqttCallback;
 import org.eclipse.paho.client.mqttv3.MqttConnectOptions;
 import org.eclipse.paho.client.mqttv3.MqttException;
 import org.eclipse.paho.client.mqttv3.MqttMessage;
+import org.jdeferred.DoneCallback;
 import org.jdeferred.DonePipe;
 import org.jdeferred.FailCallback;
 import org.jdeferred.Promise;
@@ -45,9 +47,24 @@ import java.io.IOException;
 public class MainActivity extends AppCompatActivity {
 
     public static final String TAG = "KiiSample";
+    AndroidDeferredManager adm;
+
+    @Override
+    protected void onPause() {
+        super.onPause();
+        adm.getExecutorService().shutdown();
+    }
+
+    @Override
+    protected void onResume() {
+        super.onResume();
+        adm = new AndroidDeferredManager();
+    }
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        adm = new AndroidDeferredManager();
         Kii.initialize(this, "9ab34d8b", "7a950d78956ed39f3b0815f0f001b43b", Kii.Site.JP);
         setContentView(R.layout.activity_main);
 
@@ -61,41 +78,53 @@ public class MainActivity extends AppCompatActivity {
             public void onClick(View view) {
                 String username = usernameEdit.getText().toString();
                 String password = passwordEdit.getText().toString();
-                new AndroidDeferredManager().when(loginTask(username, password)).then(new DonePipe<KiiUser, Pair<KiiUser,String>, Throwable, Void>() {
-                    @Override
-                    public Promise<Pair<KiiUser,String>, Throwable, Void> pipeDone(KiiUser result) {
-                        return new AndroidDeferredManager().when(installPush(result));
-                    }
-                }).then(new DonePipe<Pair<KiiUser,String>, JSONObject, Throwable, Void>() {
-                    @Override
-                    public Promise<JSONObject, Throwable, Void> pipeDone(Pair<KiiUser,String> result) {
-                        return new AndroidDeferredManager().when(getEndpoint(result.first, result.second));
-                    }
-                }).then(new DonePipe<JSONObject, Void, Throwable, Void>() {
-                    @Override
-                    public Promise<Void, Throwable, Void> pipeDone(JSONObject result) {
-                        return new AndroidDeferredManager().when(mqttConnect(result));
-                    }
-                }).fail(new FailCallback<Throwable>() {
-                    @Override
-                    public void onFail(Throwable result) {
-                        Log.v(TAG, "Chain failed:");
-                        result.printStackTrace();
-                    }
-                });
+                process(loginTask(username, password));
             }
         });
+
 
         signup.setOnClickListener(new View.OnClickListener(){
             @Override
             public void onClick(View view) {
                 String username = usernameEdit.getText().toString();
                 String password = passwordEdit.getText().toString();
+                process(signUpTask(username, password));
             }
         });
     }
 
-    public DeferredAsyncTask<Void, Void, KiiUser> loginTask(final String username, final String password) {
+    private void process(DeferredAsyncTask<Void, Void, KiiUser> userTask) {
+        adm.when(userTask).then(new DonePipe<KiiUser, Pair<KiiUser,String>, Throwable, Void>() {
+            @Override
+            public Promise<Pair<KiiUser,String>, Throwable, Void> pipeDone(KiiUser result) {
+                return adm.when(installPush(result));
+            }
+        }).then(new DonePipe<Pair<KiiUser,String>, JSONObject, Throwable, Void>() {
+            @Override
+            public Promise<JSONObject, Throwable, Void> pipeDone(Pair<KiiUser,String> result) {
+                return adm.when(getEndpoint(result.first, result.second));
+            }
+        }).then(new DonePipe<JSONObject, Void, Throwable, Void>() {
+            @Override
+            public Promise<Void, Throwable, Void> pipeDone(JSONObject result) {
+                return adm.when(mqttConnect(result));
+            }
+        }).then(new DoneCallback<Void>() {
+            @Override
+            public void onDone(Void result) {
+                Toast.makeText(MainActivity.this, "Everything is fine!", Toast.LENGTH_LONG).show();
+            }
+        }).fail(new FailCallback<Throwable>() {
+            @Override
+            public void onFail(Throwable result) {
+                Log.v(TAG, "Chain failed:");
+                result.printStackTrace();
+                Toast.makeText(MainActivity.this, "Chain failed: " + result.getMessage(), Toast.LENGTH_LONG).show();
+            }
+        });
+    }
+
+    private DeferredAsyncTask<Void, Void, KiiUser> loginTask(final String username, final String password) {
         return new DeferredAsyncTask<Void, Void, KiiUser>() {
             @Override
             protected KiiUser doInBackgroundSafe(Void... params) throws Exception {
@@ -105,7 +134,7 @@ public class MainActivity extends AppCompatActivity {
         };
     }
 
-    public DeferredAsyncTask<Void, Void, KiiUser> signUpTask(final String username, final String password) {
+    private DeferredAsyncTask<Void, Void, KiiUser> signUpTask(final String username, final String password) {
         return new DeferredAsyncTask<Void, Void, KiiUser>() {
             @Override
             protected KiiUser doInBackgroundSafe(Void... params) throws Exception {
@@ -116,7 +145,7 @@ public class MainActivity extends AppCompatActivity {
         };
     }
 
-    public DeferredAsyncTask<Void, Void, Pair<KiiUser, String>> installPush(final KiiUser user) {
+    private DeferredAsyncTask<Void, Void, Pair<KiiUser, String>> installPush(final KiiUser user) {
         return new DeferredAsyncTask<Void, Void, Pair<KiiUser, String>>() {
             @Override
             protected Pair<KiiUser, String> doInBackgroundSafe(Void... params) throws Exception {
@@ -145,7 +174,7 @@ public class MainActivity extends AppCompatActivity {
         };
     }
 
-    public DeferredAsyncTask<Void, Void, JSONObject> getEndpoint(final KiiUser user, final String installationID) {
+    private DeferredAsyncTask<Void, Void, JSONObject> getEndpoint(final KiiUser user, final String installationID) {
         return new DeferredAsyncTask<Void, Void, JSONObject>() {
             @Override
             protected JSONObject doInBackgroundSafe(Void... params) throws Exception {
@@ -167,7 +196,7 @@ public class MainActivity extends AppCompatActivity {
         };
     }
 
-    public DeferredAsyncTask<Void, Void, Void> mqttConnect(final JSONObject endpoint) {
+    private DeferredAsyncTask<Void, Void, Void> mqttConnect(final JSONObject endpoint) {
         return new DeferredAsyncTask<Void, Void, Void>() {
             @Override
             protected Void doInBackgroundSafe(Void... params) throws Exception {
@@ -194,6 +223,7 @@ public class MainActivity extends AppCompatActivity {
                     @Override
                     public void messageArrived(String topic, MqttMessage message) throws Exception {
                         Log.v(TAG, "messageArrived " + message.toString());
+                        Toast.makeText(MainActivity.this, "messageArrived: " + message.toString(), Toast.LENGTH_LONG).show();
                     }
 
                     @Override
