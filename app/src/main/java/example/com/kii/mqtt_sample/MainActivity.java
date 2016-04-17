@@ -78,23 +78,46 @@ public class MainActivity extends AppCompatActivity {
             public void onClick(View view) {
                 String username = usernameEdit.getText().toString();
                 String password = passwordEdit.getText().toString();
-                process(loginTask(username, password));
+                process(loginTask(username, password)).then(new DoneCallback<Void>() {
+                    @Override
+                    public void onDone(Void result) {
+                        Toast.makeText(MainActivity.this, "Everything is fine! Ready for receive push.", Toast.LENGTH_LONG).show();
+                    }
+                }).fail(new FailCallback<Throwable>() {
+                    @Override
+                    public void onFail(Throwable result) {
+                        Log.v(TAG, "Chain failed:");
+                        result.printStackTrace();
+                        Toast.makeText(MainActivity.this, "Chain failed: " + result.getMessage(), Toast.LENGTH_LONG).show();
+                    }
+                });
             }
         });
-
 
         signup.setOnClickListener(new View.OnClickListener(){
             @Override
             public void onClick(View view) {
                 String username = usernameEdit.getText().toString();
                 String password = passwordEdit.getText().toString();
-                process(signUpTask(username, password));
+                process(signUpTask(username, password)).then(new DoneCallback<Void>() {
+                    @Override
+                    public void onDone(Void result) {
+                        Toast.makeText(MainActivity.this, "Everything is fine! Ready for receive push.", Toast.LENGTH_LONG).show();
+                    }
+                }).fail(new FailCallback<Throwable>() {
+                    @Override
+                    public void onFail(Throwable result) {
+                        Log.v(TAG, "Chain failed:");
+                        result.printStackTrace();
+                        Toast.makeText(MainActivity.this, "Chain failed: " + result.getMessage(), Toast.LENGTH_LONG).show();
+                    }
+                });
             }
         });
     }
 
-    private void process(DeferredAsyncTask<Void, Void, KiiUser> userTask) {
-        adm.when(userTask).then(new DonePipe<KiiUser, Pair<KiiUser,String>, Throwable, Void>() {
+    private Promise<Void, Throwable, Void> process(DeferredAsyncTask<Void, Void, KiiUser> userTask) {
+        return (adm.when(userTask).then(new DonePipe<KiiUser, Pair<KiiUser,String>, Throwable, Void>() {
             @Override
             public Promise<Pair<KiiUser,String>, Throwable, Void> pipeDone(KiiUser result) {
                 return adm.when(installPush(result));
@@ -109,19 +132,7 @@ public class MainActivity extends AppCompatActivity {
             public Promise<Void, Throwable, Void> pipeDone(JSONObject result) {
                 return adm.when(mqttConnect(result));
             }
-        }).then(new DoneCallback<Void>() {
-            @Override
-            public void onDone(Void result) {
-                Toast.makeText(MainActivity.this, "Everything is fine!", Toast.LENGTH_LONG).show();
-            }
-        }).fail(new FailCallback<Throwable>() {
-            @Override
-            public void onFail(Throwable result) {
-                Log.v(TAG, "Chain failed:");
-                result.printStackTrace();
-                Toast.makeText(MainActivity.this, "Chain failed: " + result.getMessage(), Toast.LENGTH_LONG).show();
-            }
-        });
+        }));
     }
 
     private DeferredAsyncTask<Void, Void, KiiUser> loginTask(final String username, final String password) {
