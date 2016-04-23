@@ -78,7 +78,12 @@ public class MainActivity extends AppCompatActivity {
             public void onClick(View view) {
                 String username = usernameEdit.getText().toString();
                 String password = passwordEdit.getText().toString();
-                process(loginTask(username, password)).then(new DoneCallback<Void>() {
+                loginPromise(username, password).then(new DonePipe<KiiUser, Void, Throwable, Void>() {
+                    @Override
+                    public Promise<Void, Throwable, Void> pipeDone(KiiUser result) {
+                        return process(result);
+                    }
+                }).then(new DoneCallback<Void>() {
                     @Override
                     public void onDone(Void result) {
                         Toast.makeText(MainActivity.this, "Everything is fine! Ready for receive push.", Toast.LENGTH_LONG).show();
@@ -99,7 +104,12 @@ public class MainActivity extends AppCompatActivity {
             public void onClick(View view) {
                 String username = usernameEdit.getText().toString();
                 String password = passwordEdit.getText().toString();
-                process(signUpTask(username, password)).then(new DoneCallback<Void>() {
+                signUpPromise(username, password).then(new DonePipe<KiiUser, Void, Throwable, Void>() {
+                    @Override
+                    public Promise<Void, Throwable, Void> pipeDone(KiiUser result) {
+                        return process(result);
+                    }
+                }).then(new DoneCallback<Void>() {
                     @Override
                     public void onDone(Void result) {
                         Toast.makeText(MainActivity.this, "Everything is fine! Ready for receive push.", Toast.LENGTH_LONG).show();
@@ -116,23 +126,22 @@ public class MainActivity extends AppCompatActivity {
         });
     }
 
-    private Promise<Void, Throwable, Void> process(DeferredAsyncTask<Void, Void, KiiUser> userTask) {
-        return (adm.when(userTask).then(new DonePipe<KiiUser, Pair<KiiUser,String>, Throwable, Void>() {
+    private Promise<Void, Throwable, Void> process(KiiUser user) {
+        return installPromise(user).then(new DonePipe<Pair<KiiUser,String>, JSONObject, Throwable, Void>() {
             @Override
-            public Promise<Pair<KiiUser,String>, Throwable, Void> pipeDone(KiiUser result) {
-                return adm.when(installPush(result));
-            }
-        }).then(new DonePipe<Pair<KiiUser,String>, JSONObject, Throwable, Void>() {
-            @Override
-            public Promise<JSONObject, Throwable, Void> pipeDone(Pair<KiiUser,String> result) {
-                return adm.when(getEndpoint(result.first, result.second));
+            public Promise<JSONObject, Throwable, Void> pipeDone(Pair<KiiUser, String> result) {
+                return getEndpointPromise(result.first, result.second);
             }
         }).then(new DonePipe<JSONObject, Void, Throwable, Void>() {
             @Override
             public Promise<Void, Throwable, Void> pipeDone(JSONObject result) {
-                return adm.when(mqttConnect(result));
+                return mqttConnectPromise(result);
             }
-        }));
+        });
+    }
+
+    private Promise<KiiUser, Throwable, Void> loginPromise(final String username, final String password) {
+        return adm.when(loginTask(username, password));
     }
 
     private DeferredAsyncTask<Void, Void, KiiUser> loginTask(final String username, final String password) {
@@ -145,6 +154,10 @@ public class MainActivity extends AppCompatActivity {
         };
     }
 
+    private Promise<KiiUser, Throwable, Void> signUpPromise(final String username, final String password) {
+        return adm.when(signUpTask(username, password));
+    }
+
     private DeferredAsyncTask<Void, Void, KiiUser> signUpTask(final String username, final String password) {
         return new DeferredAsyncTask<Void, Void, KiiUser>() {
             @Override
@@ -154,6 +167,10 @@ public class MainActivity extends AppCompatActivity {
                 return user;
             }
         };
+    }
+
+    private Promise<Pair<KiiUser, String>, Throwable, Void> installPromise(final KiiUser user) {
+        return adm.when(installPush(user));
     }
 
     private DeferredAsyncTask<Void, Void, Pair<KiiUser, String>> installPush(final KiiUser user) {
@@ -185,6 +202,10 @@ public class MainActivity extends AppCompatActivity {
         };
     }
 
+    private Promise<JSONObject, Throwable, Void> getEndpointPromise(final KiiUser user, final String installationID) {
+        return adm.when(getEndpoint(user, installationID));
+    }
+
     private DeferredAsyncTask<Void, Void, JSONObject> getEndpoint(final KiiUser user, final String installationID) {
         return new DeferredAsyncTask<Void, Void, JSONObject>() {
             @Override
@@ -205,6 +226,10 @@ public class MainActivity extends AppCompatActivity {
                 return respJSON;
             }
         };
+    }
+
+    private Promise<Void, Throwable, Void> mqttConnectPromise (final JSONObject endpoint) {
+        return adm.when(mqttConnect(endpoint));
     }
 
     private DeferredAsyncTask<Void, Void, Void> mqttConnect(final JSONObject endpoint) {
